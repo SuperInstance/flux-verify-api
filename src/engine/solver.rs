@@ -1,5 +1,6 @@
 /// Lightweight CSP solver using backtracking.
 /// For the MVP, this is a placeholder that returns the parsed solution directly.
+
 use crate::compiler::ConstraintProblem;
 
 #[derive(Debug, Clone)]

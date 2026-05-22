@@ -11,23 +11,14 @@ pub fn parse(claim: &str) -> Result<ConstraintProblem, String> {
         return Ok(ConstraintProblem {
             domain: "generic".into(),
             variables: vec![
-                super::Variable {
-                    name: "left".into(),
-                    value: left,
-                    desc: "left operand".into(),
-                },
-                super::Variable {
-                    name: "right".into(),
-                    value: right,
-                    desc: "right operand".into(),
+                super::Variable { name: "left".into(), value: left, desc: "left operand".into() },
+                super::Variable { name: "right".into(), value: right, desc: "right operand".into() },
+            ],
+            constraints: vec![
+                super::Constraint::GenericCompare {
+                    left, operator: op.clone(), right, desc: original.clone(),
                 },
             ],
-            constraints: vec![super::Constraint::GenericCompare {
-                left,
-                operator: op.clone(),
-                right,
-                desc: original.clone(),
-            }],
             assertion: super::Assertion {
                 assertion_type: op,
                 expected: right,
@@ -41,28 +32,13 @@ pub fn parse(claim: &str) -> Result<ConstraintProblem, String> {
         return Ok(ConstraintProblem {
             domain: "generic".into(),
             variables: vec![
-                super::Variable {
-                    name: "value".into(),
-                    value,
-                    desc: "value".into(),
-                },
-                super::Variable {
-                    name: "min".into(),
-                    value: min,
-                    desc: "minimum bound".into(),
-                },
-                super::Variable {
-                    name: "max".into(),
-                    value: max,
-                    desc: "maximum bound".into(),
-                },
+                super::Variable { name: "value".into(), value, desc: "value".into() },
+                super::Variable { name: "min".into(), value: min, desc: "minimum bound".into() },
+                super::Variable { name: "max".into(), value: max, desc: "maximum bound".into() },
             ],
-            constraints: vec![super::Constraint::GenericRangeCheck {
-                value,
-                min,
-                max,
-                desc: original.clone(),
-            }],
+            constraints: vec![
+                super::Constraint::GenericRangeCheck { value, min, max, desc: original.clone() },
+            ],
             assertion: super::Assertion {
                 assertion_type: "in_range".into(),
                 expected: 0.0,
@@ -76,28 +52,13 @@ pub fn parse(claim: &str) -> Result<ConstraintProblem, String> {
         return Ok(ConstraintProblem {
             domain: "generic".into(),
             variables: vec![
-                super::Variable {
-                    name: "value".into(),
-                    value,
-                    desc: "value".into(),
-                },
-                super::Variable {
-                    name: "min".into(),
-                    value: min,
-                    desc: "minimum".into(),
-                },
-                super::Variable {
-                    name: "max".into(),
-                    value: max,
-                    desc: "maximum".into(),
-                },
+                super::Variable { name: "value".into(), value, desc: "value".into() },
+                super::Variable { name: "min".into(), value: min, desc: "minimum".into() },
+                super::Variable { name: "max".into(), value: max, desc: "maximum".into() },
             ],
-            constraints: vec![super::Constraint::GenericBound {
-                value,
-                min,
-                max,
-                desc: original.clone(),
-            }],
+            constraints: vec![
+                super::Constraint::GenericBound { value, min, max, desc: original.clone() },
+            ],
             assertion: super::Assertion {
                 assertion_type: "in_range".into(),
                 expected: 0.0,
