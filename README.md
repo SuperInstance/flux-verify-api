@@ -1,241 +1,207 @@
 # flux-verify-api
 
-**Natural Language Verification API** — prove or disprove claims with mathematical traces.
+Rust HTTP service that verifies natural-language constraint claims. Parses a claim, compiles it to FLUX bytecodes, executes on a VM, and returns PROVEN/DISPROVEN/UNKNOWN with a Merkle-hashed proof trace.
 
-Post a claim in English. Get back `PROVEN` or `DISPROVEN` with a full physics trace, counterexample, and SHA-256 proof hash. Built in Rust with a custom bytecode VM, Ed25519 signing, and optional PLATO fleet integration.
+Built with Axum. Supports three domains: **sonar**, **thermal**, and **generic**.
 
-## Quick Start
+## Build & Run
 
 ```bash
-# Start the server
-VERIFY_PORT=8080 cargo run
+cargo build --release
+cargo run --release
 
-# Verify a sonar claim
-curl -X POST http://localhost:8080/verify \
-  -H "Content-Type: application/json" \
-  -d '{
-    "claim": "A 50kHz sonar at 200m depth can detect a 10dB target at 5km",
-    "domain": "sonar",
-    "rigor": "full"
-  }'
+# With PLATO integration (optional)
+VERIFY_PLATO_URL=http://localhost:8847 VERIFY_PLATO_TOKEN=secret cargo run --release
 ```
 
-Response:
+Defaults to `0.0.0.0:8080`. Override with `VERIFY_HOST` and `VERIFY_PORT`.
+
+## API
+
+### POST /verify
 
 ```json
 {
-  "status": "DISPROVEN",
-  "confidence": 0.97,
-  "trace": [
-    {"opcode": "LOAD", "value": 200.0, "desc": "depth (m)"},
-    {"opcode": "LOAD", "value": 50000.0, "desc": "frequency (Hz)"},
-    {"opcode": "SONAR_SVP", "result": 1482.3, "desc": "sound velocity (Mackenzie 1981)"},
-    {"opcode": "SONAR_ABSORPTION", "result": 12.4, "desc": "absorption dB/km (FG 1982)"},
-    {"opcode": "SONAR_TL", "result": 67.3, "desc": "transmission loss (dB)"},
-    {"opcode": "ASSERT_GT", "expected": 0, "actual": -12.1, "desc": "signal excess (dB)"}
-  ],
-  "counterexample": {
-    "depth_m": 200,
-    "frequency_hz": 50000,
-    "range_m": 5000,
-    "sound_velocity_ms": 1482.3,
-    "absorption_db_km": 12.4,
-    "transmission_loss_db": 67.3,
-    "signal_excess_db": -12.1
-  },
-  "proof_hash": "sha256:a4f2e8c..."
+  "claim": "at 10 kHz and 200m depth, a signal at 5 km range is detectable",
+  "domain": "sonar",
+  "rigor": "standard"
 }
 ```
 
-## What It Does
+- `domain`: `sonar` | `thermal` | `generic` (default: `generic`)
+- `rigor`: `standard` (default)
 
-flux-verify-api is a **constraint verification server** that takes natural language claims, compiles them into a domain-specific bytecode, executes them in a virtual machine with real physics models, and returns a cryptographic proof of the result.
+**Response (200):**
+
+```json
+{
+  "status": "PROVEN",
+  "confidence": 0.938,
+  "trace": [
+    { "opcode": "LOAD", "value": 200.0, "desc": "depth (m)" },
+    { "opcode": "LOAD", "value": 10000.0, "desc": "frequency (Hz)" },
+    { "opcode": "LOAD", "value": 5000.0, "desc": "range (m)" },
+    { "opcode": "SONAR_SVP", "result": 1512.3, "desc": "sound velocity (Mackenzie 1981)" },
+    { "opcode": "SONAR_ABSORPTION", "result": 1.06, "desc": "absorption dB/km (FG 1982)" },
+    { "opcode": "SONAR_TL", "result": 78.3, "desc": "transmission loss (dB)" },
+    { "opcode": "ASSERT_GT", "expected": 0.0, "actual": 68.4, "desc": "signal excess (dB)" }
+  ],
+  "counterexample": null,
+  "proof_hash": "sha256:a1b2c3...",
+  "plato_tile_id": null
+}
+```
+
+### GET /status
+
+```json
+{
+  "total_verifications": 42,
+  "proven": 28,
+  "disproven": 12,
+  "unknown": 2,
+  "avg_latency_ms": 3.4
+}
+```
+
+### GET /health
+
+```json
+{ "status": "ok", "version": "0.1.0" }
+```
+
+## Domains
+
+### Sonar
+
+Verifies acoustic detection claims using the sonar equation:
+
+```
+SE = SL - 2·TL + TS - DT
+```
+
+Where SE > 0 means detection is possible.
+
+**Physics models used:**
+- **Sound velocity**: Mackenzie 1981 equation (valid 2–30°C, 25–40‰, 0–8000m)
+- **Absorption**: Francois-Garrison 1982 (Boric acid + MgSO4 relaxation + viscous)
+- **Transmission loss**: Spherical spreading + absorption (`TL = 20·log₁₀(r) + α·r/1000`)
+- **Signal excess**: Source level 220 dB, detection threshold 5 dB, default target strength 10 dB
+
+**Example claims the parser understands:**
+
+```bash
+# Detectability check
+curl -X POST localhost:8080/verify -H 'Content-Type: application/json' -d '{
+  "claim": "at 10 kHz and 200m depth, a signal at 5 km range is detectable",
+  "domain": "sonar"
+}'
+
+# With environmental parameters
+curl -X POST localhost:8080/verify -H 'Content-Type: application/json' -d '{
+  "claim": "50 kHz at 100m depth, 2 km range, temperature 4, salinity 35, target 15 dB",
+  "domain": "sonar"
+}'
+```
+
+The parser extracts frequency (kHz/Hz), depth, range (km), temperature, salinity, and target strength from natural language.
+
+### Thermal
+
+Verifies temperature is within safe operating bounds.
+
+```bash
+curl -X POST localhost:8080/verify -H 'Content-Type: application/json' -d '{
+  "claim": "temperature 72°C is within safe range of 60 to 85°C",
+  "domain": "thermal"
+}'
+```
+
+Parses: temperature value + safe range ("X to Y", "between X and Y", "from X to Y").
+
+### Generic
+
+Numeric comparisons and range checks without domain-specific physics.
+
+```bash
+# Comparison
+curl -X POST localhost:8080/verify -H 'Content-Type: application/json' -d '{
+  "claim": "150 is greater than 100",
+  "domain": "generic"
+}'
+
+# Range check
+curl -X POST localhost:8080/verify -H 'Content-Type: application/json' -d '{
+  "claim": "value 42 is between 10 and 100",
+  "domain": "generic"
+}'
+
+# Tolerance bound
+curl -X POST localhost:8080/verify -H 'Content-Type: application/json' -d '{
+  "claim": "99.5 is within 0.5 of 100",
+  "domain": "generic"
+}'
+```
+
+Supported comparison operators: `>`, `>=`, `<`, `<=`, `==`, and natural language equivalents ("greater than", "at least", "is above", etc.)
+
+## FLUX VM
 
 The verification pipeline:
 
 ```
 Natural language claim
-    ↓
-Parser (NLP pattern extraction)
-    ↓
-ConstraintProblem (structured claim)
-    ↓
-Compiler (domain-specific bytecodes)
-    ↓
-FLUX VM (execute with physics)
-    ↓
-Trace + Provenance (SHA-256 Merkle + Ed25519 signature)
-    ↓
-Response (PROVEN / DISPROVEN / ERROR)
+  → Parser (domain-specific)
+  → ConstraintProblem
+  → Compiler
+  → FLUX bytecodes
+  → VM execution
+  → Trace + verdict
+  → Merkle hash of trace
 ```
 
-Every verification produces an auditable trace — each bytecode instruction, its inputs, and its outputs are recorded. The trace is hashed with SHA-256 and can be signed with Ed25519 for tamper-proof provenance.
+**Bytecode opcodes:**
 
-## Verification Domains
+| Opcode | Description |
+|--------|-------------|
+| `LOAD` | Load a named value into a register |
+| `SONAR_SVP` | Compute sound velocity (Mackenzie 1981) |
+| `SONAR_ABSORPTION` | Compute absorption (Francois-Garrison 1982) |
+| `SONAR_TL` | Compute transmission loss |
+| `THERMAL_BOUND` | Check temperature against safe range |
+| `GENERIC_COMPARE` | Numeric comparison (gt/gte/lt/lte/eq) |
+| `GENERIC_BOUND` | Value within tolerance of center |
+| `GENERIC_RANGE_CHECK` | Value within [min, max] |
+| `ASSERT_GT` | Assert signal excess > 0 (sonar) |
+| `ASSERT_IN_RANGE` | Assert last result margin ≥ 0 |
 
-### Sonar (`"domain": "sonar"`)
+Each opcode produces a `TraceEntry` with the operation result. The full trace is Merkle-hashed (SHA-256) for proof integrity.
 
-Full underwater acoustic detection analysis:
-
-1. **Sound velocity profile** — Mackenzie (1981) nine-term equation for sound speed in seawater
-2. **Absorption model** — Francois & Garrison (1982) three-component model (boric acid, MgSO4, pure water viscosity)
-3. **Transmission loss** — Spherical spreading + frequency-dependent absorption
-4. **Signal excess** — Target strength vs. accumulated losses
-
-Example claims:
-- `"A 50kHz sonar at 200m depth detects a 10dB target at 5km"`
-- `"Active sonar at 12kHz can reach 50km range"`
-- `"40kHz sidescan sonar absorption is less than 5dB/km"`
-
-### Thermal (`"domain": "thermal"`)
-
-Temperature bound checking for safe operating ranges:
-
-- Validates temperatures against configurable safe ranges
-- Reports margin (how far inside/outside bounds) and violation type
-- Supports both Celsius and Kelvin contexts
-
-Example claims:
-- `"85°C is within safe operating range for electronics from -40°C to 125°C"`
-- `"200°C exceeds the safe thermal boundary of 150°C"`
-
-### Generic (`"domain": "generic"`)
-
-General-purpose constraint verification:
-
-- **Comparison operators**: `>`, `>=`, `<`, `<=`, `==`
-- **Natural language comparisons**: "greater than", "at least", "is above", "is below"
-- **Range checks**: "X is between Y and Z", "X is within [Y, Z]"
-- **Bound checks**: "X is within Y of Z"
-
-Example claims:
-- `"37 is greater than 20"`
-- `"100 is between 0 and 200"`
-- `"5.5 is at least 3.0"`
-
-## Architecture
-
-### Bytecode VM
-
-The FLUX VM executes domain-specific bytecodes:
-
-| Opcode | Domain | Description |
-|--------|--------|-------------|
-| `LOAD` | All | Load a named value into a VM register |
-| `SONAR_SVP` | Sonar | Compute sound velocity (Mackenzie 1981) |
-| `SONAR_ABSORPTION` | Sonar | Compute absorption dB/km (FG 1982) |
-| `SONAR_TL` | Sonar | Compute transmission loss (dB) |
-| `THERMAL_BOUND` | Thermal | Check temperature against safe bounds |
-| `GENERIC_COMPARE` | Generic | Compare two values with an operator |
-| `GENERIC_BOUND` | Generic | Check value within [min, max] |
-| `GENERIC_RANGE_CHECK` | Generic | Verify value in range |
-| `ASSERT_GT` | All | Assert a condition holds (> 0) |
-
-### Natural Language Parser
-
-The parser extracts structured data from English claims using pattern matching:
-
-- Number extraction: `"50kHz"` → `50000.0`, `"200m"` → `200.0`
-- Range extraction: `"between X and Y"`, `"from X to Y"`
-- Comparison extraction: `"greater than X"`, `"at least X"`, `"X > Y"`
-- Unit-aware parsing: kHz, Hz, m, km, °C, dB
-
-### Cryptographic Provenance
-
-Every verification is cryptographically anchored:
-
-1. **SHA-256 fingerprint** of the bytecode blob
-2. **Ed25519 signature** over `(fingerprint || timestamp)` using `ed25519-dalek`
-3. **Tamper detection** — any bytecode modification invalidates the signature
+## Proof Verification
 
 ```rust
-use flux_verify_api::signing::{sign_bytecode, verify_bytecode};
+use flux_verify_api::provenance::merkle;
 
-let sig = sign_bytecode(&bytecode, &private_key, None);
-assert!(verify_bytecode(&bytecode, &sig, &public_key).is_ok());
+// Recompute the hash from a trace
+let computed = merkle::hash_trace(&trace);
+assert_eq!(format!("sha256:{}", computed), response.proof_hash);
 
-// Tampered bytecode fails verification
-let mut tampered = bytecode.clone();
-tampered[5] ^= 0xFF;
-assert!(verify_bytecode(&tampered, &sig, &public_key).is_err());
+// Or use the helper
+merkle::verify_proof_hash(&trace, &response.proof_hash);
 ```
 
-### PLATO Integration
+## PLATO Integration
 
-When configured, verified results are submitted as tiles to the PLATO fleet coordination system:
+Set `VERIFY_PLATO_URL` to automatically submit verification results as tiles to a PLATO server. The proof hash, verdict, and original claim are submitted.
 
-- **Automatic tile submission** after each verification
-- **Room routing** based on claim domain
-- **Provenance chain** — each tile links back to its verification trace
-
-## API Reference
-
-### `POST /verify`
-
-Verify a natural language claim.
-
-**Request:**
-```json
-{
-  "claim": "string — the claim to verify (English)",
-  "domain": "sonar | thermal | generic",
-  "rigor": "full | quick"
-}
-```
-
-**Response:**
-```json
-{
-  "status": "PROVEN | DISPROVEN | ERROR",
-  "confidence": 0.97,
-  "trace": [{"opcode": "...", "value": ..., "result": ..., "desc": "..."}],
-  "counterexample": { ... },
-  "proof_hash": "sha256:...",
-  "signature": { "sig": "hex", "fingerprint": "hex", "timestamp": 1234567890 }
-}
-```
-
-### `GET /status`
-
-Verification statistics: total claims processed, proven/disproven/error counts.
-
-### `GET /health`
-
-Health check endpoint for load balancers and monitoring.
-
-## Configuration
+## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VERIFY_HOST` | `0.0.0.0` | Bind host |
+| `VERIFY_HOST` | `0.0.0.0` | Bind address |
 | `VERIFY_PORT` | `8080` | Bind port |
-| `VERIFY_PLATO_URL` | (none) | PLATO endpoint for automatic tile submission |
-| `VERIFY_PLATO_TOKEN` | (none) | PLATO authentication token |
-
-## Physics References
-
-- **Mackenzie (1981)**: Nine-term equation for sound speed in seawater as a function of depth, temperature, and salinity
-- **Francois & Garrison (1982)**: Three-component absorption model accounting for boric acid relaxation, magnesium sulfate relaxation, and pure water viscosity
-
-## Development
-
-```bash
-cargo build
-cargo test        # unit + integration + signing tests
-cargo run         # start server on :8080
-```
-
-## Related SuperInstance Repos
-
-| Repo | Description |
-|------|-------------|
-| [flux-vm-v3](https://github.com/SuperInstance/flux-vm-v3) | Full FLUX bytecode VM for constraint verification |
-| [flux-check-js](https://github.com/SuperInstance/flux-check-js) | TypeScript constraint engine with fracture-coalesce |
-| [flux-lib-py](https://github.com/SuperInstance/flux-lib-py) | Python constraint engine with thermodynamic analysis |
-| [constraint-theory-core](https://github.com/SuperInstance/constraint-theory-core) | Core math primitives (Rust) |
-| [plato-core](https://github.com/SuperInstance/plato-core) | PLATO room/tile types and mesh registry |
-| [quality-gate-stream](https://github.com/SuperInstance/quality-gate-stream) | Quality scoring pipeline that consumes verification results |
-| [fleet-stack](https://github.com/SuperInstance/fleet-stack) | Docker deployment including verification API |
+| `VERIFY_PLATO_URL` | — | PLATO server URL (optional) |
+| `VERIFY_PLATO_TOKEN` | — | PLATO auth token (optional) |
 
 ## License
 
