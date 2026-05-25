@@ -115,11 +115,7 @@ async fn verify(
         }
     }
 
-    let status_code = if verdict == "PROVEN" {
-        StatusCode::OK
-    } else {
-        StatusCode::OK // Both proven and disproven are 200 — the status field tells you
-    };
+    let status_code = StatusCode::OK;
 
     Ok((status_code, Json(response)))
 }

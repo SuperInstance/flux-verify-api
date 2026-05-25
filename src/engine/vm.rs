@@ -37,6 +37,12 @@ pub struct FluxVm {
     pub last_result: f64,
 }
 
+impl Default for FluxVm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FluxVm {
     pub fn new() -> Self {
         Self {
@@ -310,11 +316,11 @@ impl FluxVm {
                 let mut proven = false;
                 for entry in trace.iter().rev() {
                     if entry.opcode == "GENERIC_COMPARE" || entry.opcode == "GENERIC_RANGE_CHECK" || entry.opcode == "GENERIC_BOUND" {
-                        proven = entry.result.map_or(false, |v| v > 0.0);
+                        proven = entry.result.is_some_and(|v| v > 0.0);
                         break;
                     }
                     if entry.opcode == "ASSERT_IN_RANGE" {
-                        proven = entry.result.map_or(false, |v| v >= 0.0);
+                        proven = entry.result.is_some_and(|v| v >= 0.0);
                         break;
                     }
                 }

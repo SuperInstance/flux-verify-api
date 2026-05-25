@@ -1,4 +1,4 @@
-/// Shared parsing utilities for extracting numbers and patterns from natural language.
+//! Shared parsing utilities for extracting numbers and patterns from natural language.
 
 /// Extract a number that appears immediately before the given keyword.
 pub fn extract_number_before(text: &str, keyword: &str) -> Option<f64> {
@@ -13,7 +13,7 @@ pub fn extract_number_before(text: &str, keyword: &str) -> Option<f64> {
 /// Extract a number near a keyword (within 30 chars before it).
 pub fn extract_number_near(text: &str, keyword: &str) -> Option<f64> {
     let idx = text.find(keyword)?;
-    let start = if idx > 30 { idx - 30 } else { 0 };
+    let start = idx.saturating_sub(30);
     let window = &text[start..idx];
     // Find the last number in the window
     let parts: Vec<&str> = window.split(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
@@ -23,11 +23,10 @@ pub fn extract_number_near(text: &str, keyword: &str) -> Option<f64> {
 }
 
 /// Extract a number with a unit suffix (e.g., "50khz", "200hz").
-pub fn extract_number_with_unit<'a>(text: &str, units: &[&'a str]) -> Option<f64> {
+pub fn extract_number_with_unit(text: &str, units: &[&str]) -> Option<f64> {
     for unit in units {
         for part in text.split_whitespace() {
-            if part.ends_with(unit) {
-                let num_str = &part[..part.len() - unit.len()];
+            if let Some(num_str) = part.strip_suffix(unit) {
                 if let Ok(v) = num_str.parse() {
                     return Some(v);
                 }
@@ -176,7 +175,7 @@ pub fn extract_range_check(text: &str) -> Option<(f64, f64, f64, String)> {
         if parts.len() >= 2 {
             let min = parts[0].trim().parse::<f64>().ok()?;
             let right = parts[1].split_whitespace().collect::<Vec<_>>();
-            let max = right.get(0)?.parse::<f64>().ok()?;
+            let max = right.first()?.parse::<f64>().ok()?;
             // Find the value being checked — look before "between"
             let prefix = &text[..idx];
             let value = extract_trailing_number(prefix)?;
@@ -187,8 +186,8 @@ pub fn extract_range_check(text: &str) -> Option<(f64, f64, f64, String)> {
     for phrase in &["within ", "in "] {
         if let Some(idx) = text.find(phrase) {
             let rest = &text[idx + phrase.len()..];
-            let clean = rest.trim_start_matches(|c| c == '[' || c == '(');
-            let parts: Vec<&str> = clean.split(|c| c == ',' || c == ']').collect();
+            let clean = rest.trim_start_matches(['[', '(']);
+            let parts: Vec<&str> = clean.split([',', ']']).collect();
             if parts.len() >= 2 {
                 let min = parts[0].trim().parse::<f64>().ok()?;
                 let max = parts[1].trim().parse::<f64>().ok()?;
