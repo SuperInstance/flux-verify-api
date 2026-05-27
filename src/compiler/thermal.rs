@@ -16,6 +16,30 @@ pub fn parse(claim: &str) -> Result<ConstraintProblem, String> {
     let (min_safe, max_safe) = parser::extract_range(&lower)
         .ok_or("Could not extract safe temperature range from claim")?;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_thermal_in_range() {
+        let problem = parse("temperature 45°C is within safe range of 20°C to 80°C").unwrap();
+        assert_eq!(problem.domain, "thermal");
+        assert_eq!(problem.variables.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_thermal_missing_temp() {
+        let result = parse("is within safe range of 20 to 80");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_thermal_missing_range() {
+        let result = parse("temperature 45°C is fine");
+        assert!(result.is_err());
+    }
+}
+
     Ok(ConstraintProblem {
         domain: "thermal".into(),
         variables: vec![

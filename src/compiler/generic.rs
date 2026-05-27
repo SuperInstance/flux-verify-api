@@ -106,5 +106,53 @@ pub fn parse(claim: &str) -> Result<ConstraintProblem, String> {
         });
     }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_comparison_gt() {
+        let problem = parse("10 is greater than 5").unwrap();
+        assert_eq!(problem.domain, "generic");
+        assert_eq!(problem.variables.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_comparison_lt() {
+        let problem = parse("3 is less than 10").unwrap();
+        assert_eq!(problem.domain, "generic");
+        let has_compare = problem.constraints.iter().any(|c| matches!(c, crate::compiler::Constraint::GenericCompare { .. }));
+        assert!(has_compare);
+    }
+
+    #[test]
+    fn test_parse_direct_operator() {
+        let problem = parse("100 > 50").unwrap();
+        assert_eq!(problem.domain, "generic");
+    }
+
+    #[test]
+    fn test_parse_range_check() {
+        let problem = parse("50 is between 20 and 80").unwrap();
+        assert_eq!(problem.domain, "generic");
+        let has_range = problem.constraints.iter().any(|c| matches!(c, crate::compiler::Constraint::GenericRangeCheck { .. }));
+        assert!(has_range);
+    }
+
+    #[test]
+    fn test_parse_bound() {
+        let problem = parse("52 is within 3 of 50").unwrap();
+        assert_eq!(problem.domain, "generic");
+        let has_bound = problem.constraints.iter().any(|c| matches!(c, crate::compiler::Constraint::GenericBound { .. }));
+        assert!(has_bound);
+    }
+
+    #[test]
+    fn test_parse_unrecognized() {
+        let result = parse("the quick brown fox");
+        assert!(result.is_err());
+    }
+}
+
     Err("Could not parse claim as a generic constraint. Try: 'X is greater than Y', 'X is between Y and Z', or 'X > Y'".into())
 }

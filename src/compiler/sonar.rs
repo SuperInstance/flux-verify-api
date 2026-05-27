@@ -43,6 +43,44 @@ pub fn parse(claim: &str) -> Result<ConstraintProblem, String> {
 
     let frequency_khz = freq_normalized / 1000.0;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_sonar_basic() {
+        let problem = parse("A 10kHz sonar at 100m depth can detect a 10dB target at 2km").unwrap();
+        assert_eq!(problem.domain, "sonar");
+        assert_eq!(problem.variables.len(), 4);
+    }
+
+    #[test]
+    fn test_parse_sonar_missing_frequency() {
+        let result = parse("sonar at 100m depth can detect at 2km");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_sonar_missing_depth() {
+        let result = parse("A 10kHz sonar can detect at 2km");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_sonar_missing_range() {
+        let result = parse("A 10kHz sonar at 100m depth");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_sonar_defaults_env() {
+        let problem = parse("A 5kHz sonar at 50m depth can detect a 10dB target at 1km").unwrap();
+        // Should use default temp 15 and salinity 35
+        let has_svp = problem.constraints.iter().any(|c| matches!(c, crate::compiler::Constraint::SoundVelocity { .. }));
+        assert!(has_svp);
+    }
+}
+
     Ok(ConstraintProblem {
         domain: "sonar".into(),
         variables: vec![

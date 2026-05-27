@@ -14,6 +14,234 @@ fn test_app() -> Router {
     routes::router().with_state(state)
 }
 
+// ── HTTP Endpoint Tests ──
+
+#[tokio::test]
+async fn test_health_endpoint() {
+    let app = test_app();
+    let resp = axum_test::TestServer::new(app)
+        .unwrap()
+        .get("/health")
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["version"], "0.1.0");
+}
+
+#[tokio::test]
+async fn test_status_endpoint_initial() {
+    let app = test_app();
+    let resp = axum_test::TestServer::new(app)
+        .unwrap()
+        .get("/status")
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["total_verifications"], 0);
+    assert_eq!(body["proven"], 0);
+    assert_eq!(body["disproven"], 0);
+    assert_eq!(body["unknown"], 0);
+    assert_eq!(body["avg_latency_ms"], 0.0);
+}
+
+#[tokio::test]
+async fn test_verify_endpoint_generic_proven() {
+    let app = test_app();
+    let server = axum_test::TestServer::new(app).unwrap();
+    let resp = server
+        .post("/verify")
+        .json(&serde_json::json!({
+            "claim": "10 is greater than 5",
+            "domain": "generic",
+            "rigor": "standard"
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["status"], "PROVEN");
+    assert!(body["confidence"].as_f64().unwrap() > 0.0);
+    assert!(body["proof_hash"].as_str().unwrap().starts_with("sha256:"));
+}
+
+#[tokio::test]
+async fn test_verify_endpoint_generic_disproven() {
+    let app = test_app();
+    let server = axum_test::TestServer::new(app).unwrap();
+    let resp = server
+        .post("/verify")
+        .json(&serde_json::json!({
+            "claim": "5 is greater than 10",
+            "domain": "generic"
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["status"], "DISPROVEN");
+}
+
+#[tokio::test]
+async fn test_verify_endpoint_thermal_proven() {
+    let app = test_app();
+    let server = axum_test::TestServer::new(app).unwrap();
+    let resp = server
+        .post("/verify")
+        .json(&serde_json::json!({
+            "claim": "temperature 45°C is within safe range of 20°C to 80°C",
+            "domain": "thermal"
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["status"], "PROVEN");
+}
+
+#[tokio::test]
+async fn test_verify_endpoint_thermal_disproven() {
+    let app = test_app();
+    let server = axum_test::TestServer::new(app).unwrap();
+    let resp = server
+        .post("/verify")
+        .json(&serde_json::json!({
+            "claim": "temperature 95°C is within safe range of 20°C to 80°C",
+            "domain": "thermal"
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["status"], "DISPROVEN");
+    assert!(body["counterexample"].is_object());
+}
+
+#[tokio::test]
+async fn test_verify_endpoint_invalid_domain() {
+    let app = test_app();
+    let server = axum_test::TestServer::new(app).unwrap();
+    let resp = server
+        .post("/verify")
+        .json(&serde_json::json!({
+            "claim": "test claim",
+            "domain": "quantum"
+        }))
+        .await;
+    resp.assert_status(axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn test_verify_endpoint_sonar() {
+    let app = test_app();
+    let server = axum_test::TestServer::new(app).unwrap();
+    let resp = server
+        .post("/verify")
+        .json(&serde_json::json!({
+            "claim": "A 1kHz sonar at 100m depth can detect a 10dB target at 2km",
+            "domain": "sonar"
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["status"], "PROVEN");
+}
+
+#[tokio::test]
+async fn test_status_after_verifications() {
+    let app = test_app();
+    let server = axum_test::TestServer::new(app).unwrap();
+
+    // Do a verification first
+    server
+        .post("/verify")
+        .json(&serde_json::json!({
+            "claim": "10 > 5",
+            "domain": "generic"
+        }))
+        .await;
+
+    let resp = server.get("/status").await;
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["total_verifications"], 1);
+    assert_eq!(body["proven"], 1);
+    assert!(body["avg_latency_ms"].as_f64().unwrap() > 0.0);
+}
+
+// ── Serde Tests for Request/Response ──
+
+#[test]
+fn test_verify_request_serde_roundtrip() {
+    use flux_verify_api::api::request::VerifyRequest;
+    let req = VerifyRequest {
+        claim: "test claim".into(),
+        domain: "generic".into(),
+        rigor: "standard".into(),
+    };
+    let json = serde_json::to_string(&req).unwrap();
+    let parsed: VerifyRequest = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.claim, "test claim");
+    assert_eq!(parsed.domain, "generic");
+}
+
+#[test]
+fn test_verify_request_defaults() {
+    use flux_verify_api::api::request::VerifyRequest;
+    let json = r#"{"claim":"test"}"#;
+    let parsed: VerifyRequest = serde_json::from_str(json).unwrap();
+    assert_eq!(parsed.domain, "generic");
+    assert_eq!(parsed.rigor, "standard");
+}
+
+#[test]
+fn test_verify_response_serde_roundtrip() {
+    use flux_verify_api::api::response::{TraceEntry, VerifyResponse};
+    let resp = VerifyResponse {
+        status: "PROVEN".into(),
+        confidence: 0.95,
+        trace: vec![TraceEntry {
+            opcode: "LOAD".into(),
+            value: Some(42.0),
+            result: None,
+            expected: None,
+            actual: None,
+            desc: "test".into(),
+        }],
+        counterexample: None,
+        proof_hash: "sha256:abc123".into(),
+        plato_tile_id: None,
+    };
+    let json = serde_json::to_string(&resp).unwrap();
+    let parsed: VerifyResponse = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.status, "PROVEN");
+    assert_eq!(parsed.trace.len(), 1);
+    assert!(parsed.counterexample.is_none());
+}
+
+#[test]
+fn test_health_response_serde() {
+    use flux_verify_api::api::response::HealthResponse;
+    let resp = HealthResponse {
+        status: "ok".into(),
+        version: "0.1.0".into(),
+    };
+    let json = serde_json::to_string(&resp).unwrap();
+    let parsed: HealthResponse = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.status, "ok");
+}
+
+#[test]
+fn test_status_response_serde() {
+    use flux_verify_api::api::response::StatusResponse;
+    let resp = StatusResponse {
+        total_verifications: 10,
+        proven: 7,
+        disproven: 2,
+        unknown: 1,
+        avg_latency_ms: 42.5,
+    };
+    let json = serde_json::to_string(&resp).unwrap();
+    let parsed: StatusResponse = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.total_verifications, 10);
+    assert_eq!(parsed.avg_latency_ms, 42.5);
+}
+
 // ── Sonar Domain Tests ──
 
 #[test]

@@ -25,3 +25,32 @@ impl Config {
         format!("{}:{}", self.host, self.port)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_defaults() {
+        let config = Config {
+            host: "0.0.0.0".into(),
+            port: 8080,
+            plato_url: None,
+            plato_token: None,
+        };
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.port, 8080);
+        assert!(config.plato_url.is_none());
+    }
+
+    #[test]
+    fn test_bind_addr() {
+        let config = Config {
+            host: "127.0.0.1".into(),
+            port: 9090,
+            plato_url: None,
+            plato_token: None,
+        };
+        assert_eq!(config.bind_addr(), "127.0.0.1:9090");
+    }
+}

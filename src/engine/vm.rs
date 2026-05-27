@@ -558,4 +558,150 @@ mod tests {
         // 20*log10(1000) = 60, plus 0.1 absorption
         assert!((tl - 60.1).abs() < 0.5, "Expected ~60.1 dB, got {}", tl);
     }
+
+    #[test]
+    fn test_vm_generic_compare_gte() {
+        let mut vm = FluxVm::new();
+        let trace = vm.execute(&[Bytecode::GenericCompare {
+            left: 10.0,
+            operator: "gte".into(),
+            right: 10.0,
+            desc: "10 >= 10".into(),
+        }]);
+        assert_eq!(trace.len(), 1);
+        assert_eq!(trace[0].result, Some(1.0)); // true
+    }
+
+    #[test]
+    fn test_vm_generic_compare_eq() {
+        let mut vm = FluxVm::new();
+        let trace = vm.execute(&[Bytecode::GenericCompare {
+            left: 5.0,
+            operator: "eq".into(),
+            right: 5.0,
+            desc: "5 == 5".into(),
+        }]);
+        assert_eq!(trace[0].result, Some(1.0));
+    }
+
+    #[test]
+    fn test_vm_generic_compare_unknown_op() {
+        let mut vm = FluxVm::new();
+        let trace = vm.execute(&[Bytecode::GenericCompare {
+            left: 5.0,
+            operator: "unknown".into(),
+            right: 5.0,
+            desc: "test".into(),
+        }]);
+        assert_eq!(trace[0].result, Some(0.0)); // false for unknown op
+    }
+
+    #[test]
+    fn test_vm_thermal_bound_in_range() {
+        let mut vm = FluxVm::new();
+        let trace = vm.execute(&[Bytecode::ThermalBound {
+            temp_c: 50.0,
+            min_safe: 20.0,
+            max_safe: 80.0,
+        }]);
+        assert_eq!(trace[0].actual, Some(1.0)); // in range
+        assert!(trace[0].result.unwrap() > 0.0); // positive margin
+    }
+
+    #[test]
+    fn test_vm_thermal_bound_below_min() {
+        let mut vm = FluxVm::new();
+        let trace = vm.execute(&[Bytecode::ThermalBound {
+            temp_c: 10.0,
+            min_safe: 20.0,
+            max_safe: 80.0,
+        }]);
+        assert_eq!(trace[0].actual, Some(0.0)); // out of range
+        assert!(trace[0].result.unwrap() < 0.0); // negative margin
+    }
+
+    #[test]
+    fn test_vm_generic_range_check() {
+        let mut vm = FluxVm::new();
+        let trace = vm.execute(&[Bytecode::GenericRangeCheck {
+            value: 50.0,
+            min: 20.0,
+            max: 80.0,
+            desc: "50 in [20,80]".into(),
+        }]);
+        assert_eq!(trace[0].actual, Some(1.0));
+    }
+
+    #[test]
+    fn test_vm_generic_range_check_outside() {
+        let mut vm = FluxVm::new();
+        let trace = vm.execute(&[Bytecode::GenericRangeCheck {
+            value: 90.0,
+            min: 20.0,
+            max: 80.0,
+            desc: "90 in [20,80]".into(),
+        }]);
+        assert_eq!(trace[0].actual, Some(0.0));
+    }
+
+    #[test]
+    fn test_vm_generic_bound() {
+        let mut vm = FluxVm::new();
+        let trace = vm.execute(&[Bytecode::GenericBound {
+            value: 50.0,
+            min: 20.0,
+            max: 80.0,
+            desc: "50 in bound".into(),
+        }]);
+        assert_eq!(trace[0].actual, Some(1.0));
+    }
+
+    #[test]
+    fn test_vm_load_registers() {
+        let mut vm = FluxVm::new();
+        vm.execute(&[Bytecode::Load {
+            name: "x".into(),
+            value: 42.0,
+            desc: "test".into(),
+        }]);
+        assert_eq!(vm.registers.get("x").copied(), Some(42.0));
+        assert_eq!(vm.last_result, 42.0);
+    }
+
+    #[test]
+    fn test_bytecode_serde_roundtrip() {
+        let bc = Bytecode::Load {
+            name: "x".into(),
+            value: 42.0,
+            desc: "test".into(),
+        };
+        let json = serde_json::to_string(&bc).unwrap();
+        let parsed: Bytecode = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, Bytecode::Load { value: 42.0, .. }));
+    }
+
+    #[test]
+    fn test_vm_evaluate_generic_with_compare_trace() {
+        let vm = FluxVm::new();
+        let trace = vec![TraceEntry {
+            opcode: "GENERIC_COMPARE".into(),
+            value: Some(10.0),
+            result: Some(1.0),
+            expected: Some(5.0),
+            actual: Some(5.0),
+            desc: "10 > 5".into(),
+        }];
+        let problem = crate::compiler::ConstraintProblem {
+            domain: "generic".into(),
+            variables: vec![],
+            constraints: vec![],
+            assertion: crate::compiler::Assertion {
+                assertion_type: "gt".into(),
+                expected: 5.0,
+                actual_expr: "10 > 5".into(),
+            },
+        };
+        let (verdict, _, _) = vm.evaluate(&trace, &problem);
+        assert_eq!(verdict, "PROVEN");
+    }
 }

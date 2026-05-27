@@ -163,4 +163,30 @@ mod unit {
         let sig = sign_bytecode(bytecode, &sk, Some(12345));
         assert!(verify_bytecode(bytecode, &sig, &wrong_pk).is_err());
     }
+
+    #[test]
+    fn test_fingerprint_deterministic() {
+        let bytecode = b"LOAD x 42.0";
+        let fp1 = fingerprint(bytecode);
+        let fp2 = fingerprint(bytecode);
+        assert_eq!(fp1, fp2);
+    }
+
+    #[test]
+    fn test_fingerprint_different_bytecode() {
+        let fp1 = fingerprint(b"hello");
+        let fp2 = fingerprint(b"world");
+        assert_ne!(fp1, fp2);
+    }
+
+    #[test]
+    fn test_signature_serialization() {
+        let (sk, _) = random_keypair();
+        let bytecode = b"test";
+        let sig = sign_bytecode(bytecode, &sk, Some(12345));
+        let json = serde_json::to_string(&sig).unwrap();
+        let parsed: Signature = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.fingerprint, sig.fingerprint);
+        assert_eq!(parsed.timestamp, 12345);
+    }
 }

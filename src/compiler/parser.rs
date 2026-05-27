@@ -211,6 +211,152 @@ pub fn extract_range_check(text: &str) -> Option<(f64, f64, f64, String)> {
     None
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_number_before_found() {
+        assert_eq!(extract_number_before("the depth is 200m depth", "m depth"), Some(200.0));
+    }
+
+    #[test]
+    fn test_extract_number_before_keyword_absent() {
+        assert_eq!(extract_number_before("no keyword here", "depth"), None);
+    }
+
+    #[test]
+    fn test_extract_number_near_found() {
+        assert_eq!(extract_number_near("temperature is 15.5 degrees", "degrees"), Some(15.5));
+    }
+
+    #[test]
+    fn test_extract_number_with_unit_khz() {
+        assert_eq!(extract_number_with_unit("a 50khz signal", &["khz"]), Some(50.0));
+    }
+
+    #[test]
+    fn test_extract_number_with_unit_hz() {
+        assert_eq!(extract_number_with_unit("1000hz tone", &["hz"]), Some(1000.0));
+    }
+
+    #[test]
+    fn test_extract_number_with_unit_not_found() {
+        assert_eq!(extract_number_with_unit("no units here", &["khz"]), None);
+    }
+
+    #[test]
+    fn test_extract_range_between_and() {
+        let (min, max) = extract_range("between 20 and 80").unwrap();
+        assert_eq!(min, 20.0);
+        assert_eq!(max, 80.0);
+    }
+
+    #[test]
+    fn test_extract_range_safe_range() {
+        let (min, max) = extract_range("safe range of 10 to 90").unwrap();
+        assert_eq!(min, 10.0);
+        assert_eq!(max, 90.0);
+    }
+
+    #[test]
+    fn test_extract_range_from_to() {
+        let (min, max) = extract_range("from 0 to 100").unwrap();
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 100.0);
+    }
+
+    #[test]
+    fn test_extract_range_not_found() {
+        assert_eq!(extract_range("no range here"), None);
+    }
+
+    #[test]
+    fn test_extract_comparison_operator_gt() {
+        let (left, op, right, _) = extract_comparison("10 > 5").unwrap();
+        assert_eq!(left, 10.0);
+        assert_eq!(op, "gt");
+        assert_eq!(right, 5.0);
+    }
+
+    #[test]
+    fn test_extract_comparison_gte_symbol() {
+        let (_, op, _, _) = extract_comparison("10 >= 5").unwrap();
+        assert_eq!(op, "gte");
+    }
+
+    #[test]
+    fn test_extract_comparison_lte_symbol() {
+        let (_, op, _, _) = extract_comparison("3 <= 10").unwrap();
+        assert_eq!(op, "lte");
+    }
+
+    #[test]
+    fn test_extract_comparison_natural_greater() {
+        let (left, op, right, _) = extract_comparison("10 is greater than 5").unwrap();
+        assert_eq!(left, 10.0);
+        assert_eq!(op, "gt");
+        assert_eq!(right, 5.0);
+    }
+
+    #[test]
+    fn test_extract_comparison_natural_at_least() {
+        let (_, op, _, _) = extract_comparison("10 is at least 5").unwrap();
+        assert_eq!(op, "gte");
+    }
+
+    #[test]
+    fn test_extract_comparison_natural_at_most() {
+        let (_, op, _, _) = extract_comparison("5 is at most 10").unwrap();
+        assert_eq!(op, "lte");
+    }
+
+    #[test]
+    fn test_extract_comparison_natural_equal() {
+        let (_, op, _, _) = extract_comparison("5 is equal to 5").unwrap();
+        assert_eq!(op, "eq");
+    }
+
+    #[test]
+    fn test_extract_comparison_not_found() {
+        assert_eq!(extract_comparison("hello world"), None);
+    }
+
+    #[test]
+    fn test_extract_range_check_between() {
+        let (value, min, max, _) = extract_range_check("50 is between 20 and 80").unwrap();
+        assert_eq!(value, 50.0);
+        assert_eq!(min, 20.0);
+        assert_eq!(max, 80.0);
+    }
+
+    #[test]
+    fn test_extract_range_check_within_brackets() {
+        let (value, min, max, _) = extract_range_check("50 is within [20, 80]").unwrap();
+        assert_eq!(value, 50.0);
+        assert_eq!(min, 20.0);
+        assert_eq!(max, 80.0);
+    }
+
+    #[test]
+    fn test_extract_range_check_not_found() {
+        assert_eq!(extract_range_check("nothing here"), None);
+    }
+
+    #[test]
+    fn test_extract_bound_within_of() {
+        let (value, min, max, _) = extract_bound("52 is within 3 of 50").unwrap();
+        assert_eq!(value, 52.0);
+        assert_eq!(min, 47.0);
+        assert_eq!(max, 53.0);
+    }
+
+    #[test]
+    fn test_extract_bound_not_found() {
+        assert_eq!(extract_bound("no bound here"), None);
+    }
+}
+
 /// Extract a bound: "X is within Y of Z" → (X, Z-Y, Z+Y)
 pub fn extract_bound(text: &str) -> Option<(f64, f64, f64, String)> {
     if let Some(idx) = text.find("within ") {

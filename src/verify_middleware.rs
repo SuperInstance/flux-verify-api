@@ -202,4 +202,48 @@ mod tests {
         let mw = VerificationMiddleware::new(vec![pk]).with_strict(false);
         assert!(mw.allow_unsigned());
     }
+
+    #[test]
+    fn verify_or_reject_returns_key_index() {
+        let (sk, pk) = random_keypair();
+        let mw = VerificationMiddleware::new(vec![pk]);
+        let bytecode = b"test";
+        let sig = signing::sign_bytecode(bytecode, &sk, Some(1000));
+        let idx = mw.verify_or_reject(bytecode, &sig).unwrap();
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn verify_or_reject_returns_error_message() {
+        let (sk, _) = random_keypair();
+        let (_, wrong_pk) = random_keypair();
+        let mw = VerificationMiddleware::new(vec![wrong_pk]);
+        let bytecode = b"test";
+        let sig = signing::sign_bytecode(bytecode, &sk, Some(1000));
+        let err = mw.verify_or_reject(bytecode, &sig).unwrap_err();
+        assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn remove_key_reduces_count() {
+        let (_, pk1) = random_keypair();
+        let (_, pk2) = random_keypair();
+        let mut mw = VerificationMiddleware::new(vec![pk1, pk2]);
+        assert_eq!(mw.trusted_key_count(), 2);
+        mw.remove_trusted_key(&pk1);
+        assert_eq!(mw.trusted_key_count(), 1);
+    }
+
+    #[test]
+    fn tampered_bytecode_detected_by_middleware() {
+        let (sk, pk) = random_keypair();
+        let mw = VerificationMiddleware::new(vec![pk]);
+        let bytecode = b"original bytecode";
+        let sig = signing::sign_bytecode(bytecode, &sk, Some(1000));
+        let mut tampered = bytecode.to_vec();
+        tampered[0] ^= 0xFF;
+        let result = mw.verify(&tampered, &sig);
+        assert!(!result.allowed);
+        assert!(result.reason.contains("tampered"));
+    }
 }
